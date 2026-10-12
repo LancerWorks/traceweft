@@ -5,7 +5,7 @@ export function AutoSummarySettings({ schedule, onChange }: {
   onChange: (value: SummarySchedule) => void
 }) {
   return <div className="settings-group">
-    <div className="settings-group-heading"><h3>自动生成日报</h3><p>开启后，每天按设定时间整理当天会话；关闭后仍可手动生成。</p></div>
+    <div className="settings-group-heading"><h3>自动生成日报</h3><p>开启后，每天按设定时间整理当天会话，保存为带时间戳的新文件。</p></div>
     <div className="summary-schedule-controls">
       <label className="toggle-field"><input type="checkbox" checked={schedule.autoSummaryEnabled} onChange={(event) => onChange({ ...schedule, autoSummaryEnabled: event.target.checked })} /><span>每天自动生成日报</span></label>
       <label className="field summary-time-field">生成时间<input type="time" step={60} required value={schedule.autoSummaryTime} disabled={!schedule.autoSummaryEnabled} onChange={(event) => {

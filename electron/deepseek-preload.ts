@@ -1,4 +1,5 @@
 import { ipcRenderer } from "electron"
+import { createNetworkScope, WEB_READ_TIMEOUT_MS, type NetworkScope } from "../core/network"
 import { deepSeekMessageShape, deepSeekMilliseconds, deepSeekTimestamp, isDeepSeekPagePastDate, isDeepSeekSessionOnDate, selectDeepSeekMessages, type DeepSeekHistoryMessage, type DeepSeekSession } from "../core/deepseek-reader"
 
 const ORIGIN = "https://chat.deepseek.com"
@@ -29,15 +30,16 @@ function readUserToken(): string {
   return ""
 }
 
-async function fetchBizData<T>(path: string): Promise<T> {
+async function fetchBizData<T>(path: string, scope: NetworkScope): Promise<T> {
   const token = readUserToken()
   if (!token) throw new Error("DeepSeek 尚未登录")
-  const response = await fetch(`${ORIGIN}${path}`, {
+  const response = await scope.run(() => fetch(`${ORIGIN}${path}`, {
+    signal: scope.signal,
     credentials: "include",
     headers: { Accept: "application/json", Authorization: `Bearer ${token}`, "X-App-Version": APP_VERSION },
-  })
+  }))
   if (!response.ok) throw new Error(`DeepSeek 接口返回 ${response.status}`)
-  const envelope = await response.json() as ApiEnvelope<T>
+  const envelope = await scope.run(() => response.json()) as ApiEnvelope<T>
   const code = envelope.code ?? 0
   const businessCode = envelope.data?.biz_code ?? 0
   if (code !== 0 || businessCode !== 0) throw new Error(envelope.data?.biz_msg || envelope.msg || "DeepSeek 登录状态已失效")
@@ -59,7 +61,7 @@ async function mapConcurrent<T, R>(items: T[], concurrency: number, worker: (ite
   return results
 }
 
-async function readHistory(date: string) {
+async function readHistory(date: string, scope: NetworkScope) {
   try {
     if (!readUserToken()) return { conversations: [], connected: false, needsLogin: true, error: "DeepSeek 尚未登录" }
     const seen = new Set<string>()
@@ -72,7 +74,7 @@ async function readHistory(date: string) {
         params.set("lte_cursor.pinned", String(cursor.pinned))
         params.set("lte_cursor.updated_at", String(cursor.updatedAt))
       }
-      const page = await fetchBizData<{ chat_sessions?: DeepSeekSession[]; has_more?: boolean }>(`/api/v0/chat_session/fetch_page?${params}`)
+      const page = await fetchBizData<{ chat_sessions?: DeepSeekSession[]; has_more?: boolean }>(`/api/v0/chat_session/fetch_page?${params}`, scope)
       if (!Array.isArray(page.chat_sessions)) throw new Error("DeepSeek 会话列表格式已变化，无法读取历史记录")
       const sessions = page.chat_sessions
       if (!sessions.length) break
@@ -99,7 +101,7 @@ async function readHistory(date: string) {
     const fetched = await mapConcurrent(relevant, 4, async (session) => {
       if (!session.id) return null
       try {
-        const detail = await fetchBizData<{ chat_messages?: DeepSeekHistoryMessage[] }>(`/api/v0/chat/history_messages?chat_session_id=${encodeURIComponent(session.id)}`)
+        const detail = await fetchBizData<{ chat_messages?: DeepSeekHistoryMessage[] }>(`/api/v0/chat/history_messages?chat_session_id=${encodeURIComponent(session.id)}`, scope)
         if (!Array.isArray(detail.chat_messages)) throw new Error("DeepSeek 消息格式已变化")
         if (!responseShape || responseShape.includes("消息列表为空")) responseShape = deepSeekMessageShape(detail.chat_messages)
         const selected = selectDeepSeekMessages(session, detail.chat_messages, date)
@@ -118,6 +120,7 @@ async function readHistory(date: string) {
           messages,
         }
       } catch {
+        scope.check()
         failures += 1
         return null
       }
@@ -139,7 +142,17 @@ async function readHistory(date: string) {
   }
 }
 
+const requests = new Map<string, NetworkScope>()
+ipcRenderer.on("deepseek:cancel-history", (_event, requestId: string) => requests.get(requestId)?.cancel())
 ipcRenderer.on("deepseek:read-history", async (_event, request: { requestId: string; date: string }) => {
-  const result = await readHistory(request.date)
-  ipcRenderer.send("deepseek:read-history-result", { requestId: request.requestId, result })
+  const scope = createNetworkScope("DeepSeek 读取", WEB_READ_TIMEOUT_MS)
+  requests.set(request.requestId, scope)
+  try {
+    const result = await scope.run(() => readHistory(request.date, scope))
+    ipcRenderer.send("deepseek:read-history-result", { requestId: request.requestId, result })
+  } catch (error) {
+    ipcRenderer.send("deepseek:read-history-result", { requestId: request.requestId, result: {
+      conversations: [], connected: false, error: error instanceof Error ? error.message : "DeepSeek 读取失败",
+    } })
+  } finally { requests.delete(request.requestId); scope.dispose() }
 })

@@ -82,7 +82,8 @@ export type ElectronApi = {
   hideDeepSeek: () => Promise<void>
   onDeepSeekVisibilityChanged: (listener: (visible: boolean) => void) => () => void
   generateDailySummary: (conversations: Conversation[], options: SummaryOptions) => Promise<DailySummary>
-  writeMarkdownSummary: (summary: DailySummary, outputPath?: string) => Promise<string>
+  cancelNetworkRequests: () => Promise<void>
+  writeMarkdownSummary: (summary: DailySummary, outputPath?: string, automatic?: boolean) => Promise<string>
   appendFeishuSummary: (summary: DailySummary) => Promise<string>
   getSettings: () => Promise<AppSettings>
   saveSettings: (settings: AppSettings) => Promise<void>

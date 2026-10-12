@@ -12,15 +12,59 @@ import { DEFAULT_AUTO_READ_ENABLED, normalizeAutoReadEnabled } from "../core/aut
 import { DEFAULT_SUMMARY_SCHEDULE, normalizeSummarySchedule } from "../core/summary-schedule"
 import { appendSummaryToFeishu } from "../core/feishu"
 import type { AppSettings, DailySummary } from "../core/types"
+import { createNetworkScope, SUMMARY_TIMEOUT_MS, WEB_READ_TIMEOUT_MS, type NetworkScope } from "../core/network"
 
 let mainWindow: BrowserWindow | null = null
 let doubaoView: WebContentsView | null = null
 let doubaoReady: Promise<void> | null = null
+let doubaoLoadError = ""
 let deepseekView: WebContentsView | null = null
 let deepseekReady: Promise<void> | null = null
 let deepseekLoadError = ""
 const doubaoRequests = new Map<string, (result: any) => void>()
 const deepseekRequests = new Map<string, (result: any) => void>()
+const networkScopes = new Set<NetworkScope>()
+
+async function withNetworkScope<T>(label: string, timeout: number, work: (scope: NetworkScope) => Promise<T>): Promise<T> {
+  const scope = createNetworkScope(label, timeout)
+  networkScopes.add(scope)
+  try { return await scope.run(() => work(scope)) }
+  finally { networkScopes.delete(scope); scope.dispose() }
+}
+
+function loadWebPage(view: WebContentsView, url: string, failed: (message: string) => void) {
+  failed("")
+  return view.webContents.loadURL(url).catch((error: Error) => failed(`网页加载失败：${error.message}`))
+}
+
+async function readWebHistory(view: WebContentsView, source: "doubao" | "deepseek", date: string, scope: NetworkScope) {
+  const requestId = randomUUID()
+  const requests = source === "doubao" ? doubaoRequests : deepseekRequests
+  const abort = () => {
+    if (!view.webContents.isDestroyed()) {
+      view.webContents.send(`${source}:cancel-history`, requestId)
+      if (view.webContents.isLoading()) view.webContents.stop()
+    }
+  }
+  scope.signal.addEventListener("abort", abort, { once: true })
+  try {
+    scope.check()
+    return await scope.run(() => new Promise<any>((resolve) => {
+      requests.set(requestId, resolve)
+      view.webContents.send(`${source}:read-history`, { requestId, date })
+    }))
+  } finally {
+    requests.delete(requestId)
+    scope.signal.removeEventListener("abort", abort)
+  }
+}
+
+async function waitForPage(view: WebContentsView, ready: Promise<void> | null, scope: NetworkScope) {
+  const abort = () => { if (!view.webContents.isDestroyed() && view.webContents.isLoading()) view.webContents.stop() }
+  scope.signal.addEventListener("abort", abort, { once: true })
+  try { await scope.run(() => ready ?? Promise.resolve()) }
+  finally { scope.signal.removeEventListener("abort", abort) }
+}
 const DOUBAO_PARTITION = "persist:doubao-summary"
 const DEEPSEEK_PARTITION = "persist:deepseek-summary"
 // Keep this in sync with .embedded-toolbar in the renderer.
@@ -90,14 +134,7 @@ function createDoubaoView() {
   if (doubaoView) return doubaoView
   doubaoView = new WebContentsView({ webPreferences: { partition: DOUBAO_PARTITION, preload: join(__dirname, "doubao-preload.js"), nodeIntegration: false, contextIsolation: true, sandbox: true } })
   mainWindow?.contentView.addChildView(doubaoView)
-  doubaoReady = new Promise<void>((resolve) => {
-    const handleLoaded = () => {
-      doubaoView?.webContents.removeListener("did-finish-load", handleLoaded)
-      resolve()
-    }
-    doubaoView?.webContents.once("did-finish-load", handleLoaded)
-  })
-  void doubaoView.webContents.loadURL("https://www.doubao.com")
+  doubaoReady = loadWebPage(doubaoView, "https://www.doubao.com", (message) => { doubaoLoadError = message })
   doubaoView.setVisible(false)
   doubaoView.webContents.on("before-input-event", (_event, input) => {
     if (input.type === "keyDown" && input.key === "Escape") setDoubaoVisible(false)
@@ -111,21 +148,7 @@ function createDeepSeekView() {
   deepseekLoadError = ""
   deepseekView = new WebContentsView({ webPreferences: { partition: DEEPSEEK_PARTITION, preload: join(__dirname, "deepseek-preload.js"), nodeIntegration: false, contextIsolation: true, sandbox: true } })
   mainWindow?.contentView.addChildView(deepseekView)
-  deepseekReady = new Promise<void>((resolve) => {
-    const finish = () => {
-      deepseekView?.webContents.removeListener("did-finish-load", finish)
-      resolve()
-    }
-    deepseekView?.webContents.once("did-finish-load", finish)
-    deepseekView?.webContents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
-      if (!isMainFrame || code === -3) return
-      deepseekLoadError = `DeepSeek 网页加载失败：${description}`
-      finish()
-    })
-  })
-  void deepseekView.webContents.loadURL("https://chat.deepseek.com").catch((error: Error) => {
-    deepseekLoadError = `DeepSeek 网页加载失败：${error.message}`
-  })
+  deepseekReady = loadWebPage(deepseekView, "https://chat.deepseek.com", (message) => { deepseekLoadError = message })
   deepseekView.webContents.setZoomFactor(0.85)
   deepseekView.setVisible(false)
   deepseekView.webContents.on("before-input-event", (_event, input) => {
@@ -143,7 +166,11 @@ async function createWindow() {
   mainWindow.webContents.on("did-fail-load", (_event, code, description) => console.error("Renderer load failed", code, description))
   mainWindow.webContents.on("render-process-gone", (_event, details) => console.error("Renderer process gone", details))
   mainWindow.on("resize", bounds)
-  mainWindow.on("closed", () => { mainWindow = null; doubaoView = null; deepseekView = null })
+  mainWindow.on("closed", () => {
+    for (const scope of networkScopes) scope.cancel()
+    mainWindow = null; doubaoView = null; deepseekView = null
+    doubaoReady = null; deepseekReady = null; doubaoLoadError = ""; deepseekLoadError = ""
+  })
 }
 
 ipcMain.handle("settings:get", () => loadSettings())
@@ -158,8 +185,12 @@ ipcMain.handle("doubao:show", () => { createDoubaoView(); setDoubaoVisible(true)
 ipcMain.handle("doubao:hide", () => setDoubaoVisible(false))
 ipcMain.handle("deepseek:show", () => { createDeepSeekView(); setDeepSeekVisible(true); bounds() })
 ipcMain.handle("deepseek:hide", () => setDeepSeekVisible(false))
-ipcMain.handle("doubao:read", async (_event, date: string) => {
-  const cookies = await session.fromPartition(DOUBAO_PARTITION).cookies.get({ url: "https://www.doubao.com" })
+ipcMain.handle("network:cancel", (event) => {
+  if (event.sender !== mainWindow?.webContents) return
+  for (const scope of networkScopes) scope.cancel()
+})
+ipcMain.handle("doubao:read", (_event, date: string) => withNetworkScope("豆包读取", WEB_READ_TIMEOUT_MS, async (scope) => {
+  const cookies = await scope.run(() => session.fromPartition(DOUBAO_PARTITION).cookies.get({ url: "https://www.doubao.com" }))
   if (!cookies.some((cookie) => DOUBAO_AUTH_COOKIES.has(cookie.name) && cookie.value)) {
     return {
       conversations: [],
@@ -169,45 +200,27 @@ ipcMain.handle("doubao:read", async (_event, date: string) => {
     }
   }
   const view = createDoubaoView()
-  await (doubaoReady ?? Promise.resolve())
-  const requestId = randomUUID()
-  const result = new Promise<any>((resolve) => {
-    doubaoRequests.set(requestId, resolve)
-    setTimeout(() => {
-      if (!doubaoRequests.has(requestId)) return
-      doubaoRequests.delete(requestId)
-      resolve({ conversations: [], connected: false, error: "豆包连接超时，请检查网络或登录状态。" })
-    }, 60_000)
-  })
-  // The preload listener is installed before did-finish-load, so this send is
-  // reliable even on the first use of the embedded page.
-  view.webContents.send("doubao:read-history", { requestId, date })
-  return result
-})
+  if (doubaoLoadError) doubaoReady = loadWebPage(view, "https://www.doubao.com", (message) => { doubaoLoadError = message })
+  await waitForPage(view, doubaoReady, scope)
+  if (doubaoLoadError) throw new Error(`豆包${doubaoLoadError}`)
+  return readWebHistory(view, "doubao", date, scope)
+}))
 
 ipcMain.on("doubao:read-history-result", (_event, payload: { requestId: string; result: any }) => {
+  if (_event.sender !== doubaoView?.webContents) return
   const resolve = doubaoRequests.get(payload.requestId)
   if (!resolve) return
   doubaoRequests.delete(payload.requestId)
   resolve(payload.result)
 })
 
-ipcMain.handle("deepseek:read", async (_event, date: string) => {
+ipcMain.handle("deepseek:read", (_event, date: string) => withNetworkScope("DeepSeek 读取", WEB_READ_TIMEOUT_MS, async (scope) => {
   const view = createDeepSeekView()
-  await (deepseekReady ?? Promise.resolve())
-  if (deepseekLoadError) return { conversations: [], connected: false, error: deepseekLoadError }
-  const requestId = randomUUID()
-  const result = new Promise<any>((resolve) => {
-    deepseekRequests.set(requestId, resolve)
-    setTimeout(() => {
-      if (!deepseekRequests.has(requestId)) return
-      deepseekRequests.delete(requestId)
-      resolve({ conversations: [], connected: false, error: "DeepSeek 连接超时，请检查网络或登录状态。" })
-    }, 60_000)
-  })
-  view.webContents.send("deepseek:read-history", { requestId, date })
-  return result
-})
+  if (deepseekLoadError) deepseekReady = loadWebPage(view, "https://chat.deepseek.com", (message) => { deepseekLoadError = message })
+  await waitForPage(view, deepseekReady, scope)
+  if (deepseekLoadError) throw new Error(`DeepSeek ${deepseekLoadError}`)
+  return readWebHistory(view, "deepseek", date, scope)
+}))
 
 ipcMain.on("deepseek:read-history-result", (_event, payload: { requestId: string; result: any }) => {
   if (_event.sender !== deepseekView?.webContents) return
@@ -217,12 +230,14 @@ ipcMain.on("deepseek:read-history-result", (_event, payload: { requestId: string
   resolve(payload.result)
 })
 
-ipcMain.handle("summary:generate", (_event, conversations, options) => generateDailySummary(options?.date ?? new Intl.DateTimeFormat("en-CA").format(new Date()), normalizeConversations(conversations), options))
-ipcMain.handle("summary:write", (_event, summary: DailySummary, outputPath?: string) => {
+ipcMain.handle("summary:generate", (_event, conversations, options) => withNetworkScope("日报生成", SUMMARY_TIMEOUT_MS,
+  (scope) => generateDailySummary(options?.date ?? new Intl.DateTimeFormat("en-CA").format(new Date()), normalizeConversations(conversations), options, scope.signal)))
+ipcMain.handle("summary:write", (_event, summary: DailySummary, outputPath?: string, automatic = false) => {
   const target = outputPath ? (outputPath.endsWith(".md") ? outputPath : join(outputPath, `${summary.date}.md`)) : defaultOutputPath(summary.date)
-  return writeSummaryMarkdown(summary, target)
+  return writeSummaryMarkdown(summary, target, automatic)
 })
-ipcMain.handle("summary:append-feishu", (_event, summary: DailySummary) => appendSummaryToFeishu(summary, loadSettings()))
+ipcMain.handle("summary:append-feishu", (_event, summary: DailySummary) => withNetworkScope("飞书同步", SUMMARY_TIMEOUT_MS,
+  (scope) => appendSummaryToFeishu(summary, loadSettings(), fetch, scope.signal)))
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {

@@ -1,4 +1,5 @@
 import type { AppSettings, DailySummary } from "./types"
+import { createNetworkScope, SUMMARY_TIMEOUT_MS } from "./network"
 
 type FeishuFetch = typeof fetch
 
@@ -79,7 +80,14 @@ export function summaryToFeishuBlocks(summary: DailySummary): FeishuBlock[] {
   })))
 }
 
-export async function appendSummaryToFeishu(summary: DailySummary, settings: AppSettings, request: FeishuFetch = fetch): Promise<string> {
+export async function appendSummaryToFeishu(summary: DailySummary, settings: AppSettings, request: FeishuFetch = fetch, signal?: AbortSignal): Promise<string> {
+  const scope = createNetworkScope("飞书同步", SUMMARY_TIMEOUT_MS, signal)
+  try {
+    return await scope.run(() => appendBlocks(summary, settings, (url, init) => request(url, { ...init, signal: scope.signal })))
+  } finally { scope.dispose() }
+}
+
+async function appendBlocks(summary: DailySummary, settings: AppSettings, request: FeishuFetch): Promise<string> {
   if (!settings.feishuEnabled) return ""
   if (!settings.feishuAppId.trim() || !settings.feishuAppSecret.trim()) throw new Error("请先填写飞书 App ID 和 App Secret")
 

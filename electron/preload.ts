@@ -20,7 +20,8 @@ const api: ElectronApi = {
     return () => ipcRenderer.removeListener("deepseek:visibility-changed", handler)
   },
   generateDailySummary: (conversations, options) => ipcRenderer.invoke("summary:generate", conversations, options),
-  writeMarkdownSummary: (summary, outputPath) => ipcRenderer.invoke("summary:write", summary, outputPath),
+  cancelNetworkRequests: () => ipcRenderer.invoke("network:cancel"),
+  writeMarkdownSummary: (summary, outputPath, automatic) => ipcRenderer.invoke("summary:write", summary, outputPath, automatic),
   appendFeishuSummary: (summary) => ipcRenderer.invoke("summary:append-feishu", summary),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),

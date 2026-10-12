@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron"
+import { createNetworkScope, WEB_READ_TIMEOUT_MS, type NetworkScope } from "../core/network"
 
 const ORIGIN = "https://www.doubao.com"
 const CMD_RECENT = 3200
@@ -52,7 +53,8 @@ function queryString(): string {
 
 let cachedSearch = ""
 
-async function getSearch(): Promise<string> {
+async function getSearch(scope: NetworkScope): Promise<string> {
+  scope.check()
   if (cachedSearch) return cachedSearch
   for (let attempt = 0; attempt < 25; attempt += 1) {
     const hasFirstPartyRecentRequest = performance.getEntriesByType("resource").some((entry) => entry.name.includes("/im/chain/recent_conv"))
@@ -60,22 +62,24 @@ async function getSearch(): Promise<string> {
       cachedSearch = queryString()
       return cachedSearch
     }
-    await new Promise((resolve) => setTimeout(resolve, 200))
+    await scope.run(() => new Promise<void>((resolve) => setTimeout(resolve, 200)))
   }
   // Do not cache fallback parameters: a later first-party request may provide
   // fresher device and web identifiers.
   return queryString()
 }
 
-async function post(path: string, cmd: number, uplinkKey: string, downlinkKey: string, payload: unknown): Promise<any> {
-  const response = await fetch(`${ORIGIN}${path}${await getSearch()}`, {
+async function post(scope: NetworkScope, path: string, cmd: number, uplinkKey: string, downlinkKey: string, payload: unknown): Promise<any> {
+  const search = await getSearch(scope)
+  const response = await scope.run(() => fetch(`${ORIGIN}${path}${search}`, {
+    signal: scope.signal,
     method: "POST",
     credentials: "include",
     headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json; encoding=utf-8", "agw-js-conv": "str" },
     body: JSON.stringify({ cmd, uplink_body: { [uplinkKey]: payload }, sequence_id: crypto.randomUUID(), channel: 2, version: "1" })
-  })
+  }))
   if (!response.ok) throw new Error(`豆包接口 ${path} 返回 ${response.status}`)
-  const data = await response.json()
+  const data = await scope.run(() => response.json())
   if (data.status_code && data.status_code !== 0) throw new Error(data.status_desc || `豆包接口 ${path} 失败`)
   return data.downlink_body?.[downlinkKey] ?? {}
 }
@@ -153,9 +157,10 @@ function conversationInfoList(body: any): any[] {
   return []
 }
 
-async function batchGetConversationInfo(ids: string[]): Promise<any[]> {
+async function batchGetConversationInfo(ids: string[], scope: NetworkScope): Promise<any[]> {
   if (!ids.length) return []
   const body = await post(
+    scope,
     "/im/conversation/batch_get",
     CMD_BATCH_GET,
     "batch_get_conv_info_uplink_body",
@@ -165,7 +170,7 @@ async function batchGetConversationInfo(ids: string[]): Promise<any[]> {
       option: { recent_message_count_per_conv: 1 },
       ext: {},
     },
-  ).catch(() => ({}))
+  ).catch(() => { scope.check(); return {} })
   return conversationInfoList(body)
 }
 
@@ -183,14 +188,14 @@ function mergeConversationInfo(refs: ConversationRef[], infos: any[]): void {
   }
 }
 
-async function fetchConversation(ref: ConversationRef, date: string) {
-  const infoBody = await post("/im/conversation/info", CMD_INFO, "get_conv_info_uplink_body", "get_conv_info_downlink_body", {
+async function fetchConversation(ref: ConversationRef, date: string, scope: NetworkScope) {
+  const infoBody = await post(scope, "/im/conversation/info", CMD_INFO, "get_conv_info_uplink_body", "get_conv_info_downlink_body", {
     conversation_id: ref.id,
     ext: {},
     bot_id: "",
     conversation_type: CONVERSATION_TYPE,
     option: { need_bot_info: true },
-  }).catch(() => ({}))
+  }).catch(() => { scope.check(); return {} })
   const info = infoBody.conversation_info ?? {}
   const title = info.name || ref.title
   let cursor = Number(info.latest_index) || ref.latestIndex || 0
@@ -211,7 +216,7 @@ async function fetchConversation(ref: ConversationRef, date: string) {
   }
 
   for (let page = 0; page < 20; page += 1) {
-    const body = await post("/im/chain/single", CMD_SINGLE, "pull_singe_chain_uplink_body", "pull_singe_chain_downlink_body", {
+    const body = await post(scope, "/im/chain/single", CMD_SINGLE, "pull_singe_chain_uplink_body", "pull_singe_chain_downlink_body", {
       conversation_id: ref.id,
       anchor_index: cursor,
       conversation_type: CONVERSATION_TYPE,
@@ -221,7 +226,7 @@ async function fetchConversation(ref: ConversationRef, date: string) {
       filter: { index_list: [] },
       evaluate_ab_params: "",
       evaluate_common_params: "",
-    }).catch(() => null)
+    }).catch(() => { scope.check(); return null })
     const raw = Array.isArray(body?.messages) ? body.messages : []
     if (!raw.length) break
     for (const item of raw) {
@@ -252,7 +257,7 @@ async function fetchConversation(ref: ConversationRef, date: string) {
   }
 }
 
-async function readHistory(date: string) {
+async function readHistory(date: string, scope: NetworkScope) {
   let connected = false
   try {
     const refs: ConversationRef[] = []
@@ -264,7 +269,7 @@ async function readHistory(date: string) {
     // at most three pages are useful; scanning hundreds of old conversations
     // made the close action appear frozen.
     for (let page = 0; page < 3 && hasMore; page += 1) {
-      const body = await post("/im/chain/recent_conv", CMD_RECENT, "pull_recent_conv_chain_uplink_body", "pull_recent_conv_chain_downlink_body", {
+      const body = await post(scope, "/im/chain/recent_conv", CMD_RECENT, "pull_recent_conv_chain_uplink_body", "pull_recent_conv_chain_downlink_body", {
         limit: 50,
         filter: page === 0
           ? { conversation_type: [], project_filter: 0, device_filter: 1 }
@@ -317,14 +322,14 @@ async function readHistory(date: string) {
     // The web client fills the sidebar with batch_get metadata. It also
     // contains latest_index and one recent message, which makes the first
     // conversation readable even when /conversation/info is stale.
-    mergeConversationInfo(refs, await batchGetConversationInfo(refs.map((ref) => ref.id)))
+    mergeConversationInfo(refs, await batchGetConversationInfo(refs.map((ref) => ref.id), scope))
 
     // Do not use the sidebar's update_time as the final date filter. Doubao
     // can leave that field stale until a conversation is opened, which used
     // to make the first sidebar item disappear. Fetch the first 60 refs and
     // let fetchConversation filter by the actual message timestamps.
     const relevant = refs.slice(0, 60)
-    const fetched = await mapConcurrent(relevant, 4, (ref) => fetchConversation(ref, date))
+    const fetched = await mapConcurrent(relevant, 4, (ref) => fetchConversation(ref, date, scope))
     const conversations = fetched
       .filter(Boolean)
       .sort((a: any, b: any) => String(b.endedAt ?? "").localeCompare(String(a.endedAt ?? "")))
@@ -334,9 +339,18 @@ async function readHistory(date: string) {
   }
 }
 
+const requests = new Map<string, NetworkScope>()
+ipcRenderer.on("doubao:cancel-history", (_event, requestId: string) => requests.get(requestId)?.cancel())
+async function boundedReadHistory(date: string, requestId: string = crypto.randomUUID()) {
+  const scope = createNetworkScope("豆包读取", WEB_READ_TIMEOUT_MS)
+  requests.set(requestId, scope)
+  try { return await scope.run(() => readHistory(date, scope)) }
+  catch (error) { return { conversations: [], connected: false, error: error instanceof Error ? error.message : "豆包读取失败" } }
+  finally { requests.delete(requestId); scope.dispose() }
+}
 ipcRenderer.on("doubao:read-history", async (_event, request: { requestId: string; date: string }) => {
-  const result = await readHistory(request.date)
+  const result = await boundedReadHistory(request.date, request.requestId)
   ipcRenderer.send("doubao:read-history-result", { requestId: request.requestId, result })
 })
 
-contextBridge.exposeInMainWorld("doubaoSummaryBridge", { ready: true, readHistory })
+contextBridge.exposeInMainWorld("doubaoSummaryBridge", { ready: true, readHistory: (date: string) => boundedReadHistory(date) })

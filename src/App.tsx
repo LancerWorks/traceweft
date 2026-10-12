@@ -80,6 +80,34 @@ function App() {
   const toolPickerRef = useRef<HTMLDivElement>(null)
   const initialReadStartedRef = useRef(false)
   const dailySummaryDayRef = useRef(storedDailySummaryDate())
+  const operationRef = useRef<{ cancelled: boolean } | null>(null)
+  const scheduledRunRef = useRef(false)
+  const scheduledCancelledRef = useRef(false)
+
+  function beginOperation() {
+    const operation = { cancelled: false }
+    operationRef.current = operation
+    loadingRef.current = true
+    setLoading(true)
+    return operation
+  }
+  function checkOperation(operation: { cancelled: boolean }) {
+    if (operation.cancelled) throw new Error("操作已取消")
+  }
+  function endOperation(operation: { cancelled: boolean }) {
+    if (operationRef.current !== operation) return
+    operationRef.current = null
+    loadingRef.current = false
+    setLoading(false)
+  }
+  async function cancelOperation() {
+    if (!operationRef.current) return
+    operationRef.current.cancelled = true
+    if (scheduledRunRef.current) scheduledCancelledRef.current = true
+    setSessionStatus("正在取消……")
+    try { await window.summaryApi.cancelNetworkRequests() }
+    catch { setSessionStatus("取消请求失败，请稍后重试。") }
+  }
 
   conversationsRef.current = conversations
   loadingRef.current = loading
@@ -156,14 +184,15 @@ function App() {
 
   async function scanSessions(automatic = false, targetDate = date, sources = enabledSources) {
     if (loadingRef.current) return null
-    loadingRef.current = true
-    setLoading(true)
+    const operation = beginOperation()
     try {
       await closeEmbedded()
+      checkOperation(operation)
       setSessionStatus(automatic ? "正在自动读取会话……" : "正在读取会话……")
       const local = sources.some((source) => source === "codex" || source === "claude-code")
         ? await window.summaryApi.scanLocalSessions(targetDate)
         : []
+      checkOperation(operation)
       let doubao = conversationsRef.current.filter((item) => item.source === "doubao")
       let deepseek = conversationsRef.current.filter((item) => item.source === "deepseek")
       let doubaoResult: Awaited<ReturnType<typeof window.summaryApi.readDoubaoSessions>> | null = null
@@ -171,6 +200,7 @@ function App() {
       if (sources.includes("doubao")) {
         setSessionStatus("正在连接豆包并读取会话……")
         doubaoResult = await window.summaryApi.readDoubaoSessions(targetDate)
+        checkOperation(operation)
         if (!doubaoResult.connected) {
           setWebConnections((current) => ({ ...current, doubao: { needsLogin: doubaoResult!.needsLogin, error: doubaoResult!.error } }))
         } else {
@@ -181,6 +211,7 @@ function App() {
       if (sources.includes("deepseek")) {
         setSessionStatus("正在连接 DeepSeek 并读取会话……")
         deepseekResult = await window.summaryApi.readDeepSeekSessions(targetDate)
+        checkOperation(operation)
         if (!deepseekResult.connected) {
           setWebConnections((current) => ({ ...current, deepseek: { needsLogin: deepseekResult!.needsLogin, error: deepseekResult!.error } }))
         } else {
@@ -206,27 +237,31 @@ function App() {
         setSessionStatus(`${automatic ? "自动读取完成" : `已读取${updated.length}个会话`}${suffix}${automatic ? `，共${updated.length}个会话` : ""}${loadedStatus("", updated)}`)
       }
       return updated
-    } catch (error) { setSessionStatus(error instanceof Error ? error.message : "读取会话失败"); return null } finally { loadingRef.current = false; setLoading(false) }
+    } catch (error) { setSessionStatus(operation.cancelled ? "操作已取消" : error instanceof Error ? error.message : "读取会话失败"); return null } finally { endOperation(operation) }
   }
 
   async function generateForConversations(items: Conversation[], targetDate: string, automatic = false) {
-    await closeEmbedded()
+    if (loadingRef.current) return false
     if (!items.length) {
       setSessionStatus(automatic ? "未自动生成日报：今天没有会话" : "请先读取会话")
       return false
     }
-    loadingRef.current = true
-    setLoading(true); setSessionStatus("正在生成日报……")
+    const operation = beginOperation()
+    setSessionStatus("正在生成日报……")
     try {
+      await closeEmbedded()
+      checkOperation(operation)
       const activeSettings = await window.summaryApi.getSettings()
+      checkOperation(operation)
       const result = await window.summaryApi.generateDailySummary(items, { ...activeSettings, date: targetDate })
+      checkOperation(operation)
+      const path = await window.summaryApi.writeMarkdownSummary(result, activeSettings.outputPath, automatic)
       setSummary(result)
-      const path = await window.summaryApi.writeMarkdownSummary(result, activeSettings.outputPath)
       // Feishu sync is intentionally disabled for now. The integration remains
       // in core/feishu.ts and can be re-enabled when the document flow is ready.
       setSessionStatus(`日报已保存：${path}`)
       return true
-    } catch (error) { setSessionStatus(error instanceof Error ? error.message : "生成日报失败"); return false } finally { loadingRef.current = false; setLoading(false) }
+    } catch (error) { setSessionStatus(operation.cancelled ? "操作已取消" : error instanceof Error ? error.message : "生成日报失败"); return false } finally { endOperation(operation) }
   }
 
   async function generate() {
@@ -234,20 +269,25 @@ function App() {
   }
 
   async function runScheduledSummary(scheduledDate: string) {
-    setDate(scheduledDate)
-    const updated = await scanSessions(true, scheduledDate)
-    if (updated === null) {
-      dailySummaryDayRef.current = ""
-      return
-    }
-    const generated = await generateForConversations(updated, scheduledDate, true)
-    // A failed run can be retried while the app remains open. A successful
-    // run stays marked for the rest of the day to avoid duplicate files.
-    if (!generated && updated.length) {
-      dailySummaryDayRef.current = ""
-      return
-    }
-    saveDailySummaryDate(scheduledDate)
+    scheduledRunRef.current = true
+    scheduledCancelledRef.current = false
+    try {
+      setDate(scheduledDate)
+      const updated = await scanSessions(true, scheduledDate)
+      if (updated === null) {
+        if (!scheduledCancelledRef.current) dailySummaryDayRef.current = ""
+        return
+      }
+      if (scheduledCancelledRef.current) return
+      const generated = await generateForConversations(updated, scheduledDate, true)
+      // A failed run can be retried while the app remains open. A successful
+      // run stays marked for the rest of the day to avoid duplicate files.
+      if (!generated && updated.length) {
+        if (!scheduledCancelledRef.current) dailySummaryDayRef.current = ""
+        return
+      }
+      saveDailySummaryDate(scheduledDate)
+    } finally { scheduledRunRef.current = false }
   }
 
 
@@ -262,16 +302,18 @@ function App() {
 
     if (!activeSource) return
 
-    loadingRef.current = true
-    setLoading(true)
+    if (loadingRef.current) return
+    const operation = beginOperation()
     const sourceLabel = activeSource === "doubao" ? "豆包" : "DeepSeek"
     setSessionStatus(`正在后台同步刚刚产生的${sourceLabel}会话……`)
     try {
       // Give the web client a brief moment to persist a newly-created conversation.
       await new Promise((resolve) => window.setTimeout(resolve, 800))
+      checkOperation(operation)
       const result = activeSource === "doubao"
         ? await window.summaryApi.readDoubaoSessions(date)
         : await window.summaryApi.readDeepSeekSessions(date)
+      checkOperation(operation)
       if (!result.connected) {
         setWebConnections((current) => ({ ...current, [activeSource]: { needsLogin: result.needsLogin, error: result.error } }))
         setSessionStatus(result.error ?? `${sourceLabel}未连接，请先登录后重试`)
@@ -287,10 +329,9 @@ function App() {
       if (result.error) setSessionStatus(result.error)
       else setSessionStatus(webSyncStatus(sourceLabel, result.conversations.length))
     } catch (error) {
-      setSessionStatus(error instanceof Error ? error.message : `${sourceLabel}会话同步失败`)
+      setSessionStatus(operation.cancelled ? "操作已取消" : error instanceof Error ? error.message : `${sourceLabel}会话同步失败`)
     } finally {
-      loadingRef.current = false
-      setLoading(false)
+      endOperation(operation)
     }
   }
 
@@ -323,13 +364,13 @@ function App() {
       return
     }
 
-    loadingRef.current = true
-    setLoading(true)
+    const operation = beginOperation()
     setSessionStatus(`正在检查${sourceName[source]}登录状态……`)
     try {
       const result = source === "doubao"
         ? await window.summaryApi.readDoubaoSessions(date)
         : await window.summaryApi.readDeepSeekSessions(date)
+      checkOperation(operation)
       if (!result.connected) {
         setWebConnections((current) => ({ ...current, [source]: { needsLogin: result.needsLogin, error: result.error } }))
         if (result.needsLogin) {
@@ -344,8 +385,8 @@ function App() {
       setSelected((current) => current ?? result.conversations[0] ?? null)
       setSessionStatus(result.error ?? (result.conversations.length ? `已读取${result.conversations.length}个${sourceName[source]}会话` : `${sourceName[source]}已连接，当天暂无会话`))
     } catch (error) {
-      setSessionStatus(error instanceof Error ? error.message : `${sourceName[source]}连接失败`)
-    } finally { loadingRef.current = false; setLoading(false) }
+      setSessionStatus(operation.cancelled ? "操作已取消" : error instanceof Error ? error.message : `${sourceName[source]}连接失败`)
+    } finally { endOperation(operation) }
   }
 
   async function saveSettings() {
@@ -400,9 +441,10 @@ function App() {
         <div className="toolbar">
           <label className="date-control">
             <span className="sr-only">选择日期</span>
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+            <input type="date" value={date} disabled={loading} onChange={(event) => setDate(event.target.value)} />
           </label>
           <button type="button" className="primary" onClick={() => void generate()} disabled={loading} aria-busy={loading}><Sparkles size={16} />生成日报</button>
+          {loading && <button type="button" className="ghost" onClick={() => void cancelOperation()}><X size={16} />取消操作</button>}
           <button type="button" className="icon-button settings-button" title="打开设置" aria-label="打开设置" onClick={() => { void closeEmbedded(); setShowSettings(true) }}><Settings2 size={16} /></button>
         </div>
       </header>

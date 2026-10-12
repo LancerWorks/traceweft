@@ -1,6 +1,7 @@
 import type { Conversation, DailySummary, Source, SummaryOptions } from "./types"
 import { sourceCounts } from "./normalizer"
 import { truncate } from "./utils"
+import { createNetworkScope, SUMMARY_TIMEOUT_MS } from "./network"
 
 export const DEFAULT_SUMMARY_PROMPT = `请根据下面的 AI 编程和聊天会话，生成 {{date}} 的中文日报。只返回 JSON，不要 Markdown 代码块，结构必须是：
 {"accomplishments":["今日完成事项或重点学习"],"knowledgeAbsorbed":["重点学习"],"tomorrow":["明日建议"]}
@@ -76,22 +77,26 @@ function fallbackSummary(date: string, conversations: Conversation[]): DailySumm
   return { date, accomplishments: titles, knowledgeAbsorbed: [], tomorrow: [], sourceBreakdown: counts, markdown }
 }
 
-export async function generateDailySummary(date: string, conversations: Conversation[], options: SummaryOptions): Promise<DailySummary> {
+export async function generateDailySummary(date: string, conversations: Conversation[], options: SummaryOptions, signal?: AbortSignal): Promise<DailySummary> {
+  if (signal?.aborted) throw new Error("操作已取消")
   if (!conversations.length) return fallbackSummary(date, conversations)
   if (!options.apiKey.trim()) return fallbackSummary(date, conversations)
 
   const prompt = buildPrompt(date, conversations, options.summaryPrompt, options.maxCharacters ?? 70000)
 
-  const response = await fetch(endpoint(options.apiBaseUrl || "https://api.openai.com"), {
+  const scope = createNetworkScope("日报生成", SUMMARY_TIMEOUT_MS, signal)
+  try {
+  const response = await scope.run(() => fetch(endpoint(options.apiBaseUrl || "https://api.openai.com"), {
+    signal: scope.signal,
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${options.apiKey}` },
     body: JSON.stringify({ model: options.model || "gpt-4o-mini", temperature: 0.2, messages: [
       { role: "system", content: "你是一个严谨的个人工程日志助手。" },
       { role: "user", content: prompt }
     ] })
-  })
-  if (!response.ok) throw new Error(`LLM 请求失败：${response.status} ${await response.text()}`)
-  const body = await response.json() as { choices?: Array<{ message?: { content?: string } }> }
+  }))
+  if (!response.ok) throw new Error(`LLM 请求失败：${response.status} ${await scope.run(() => response.text())}`)
+  const body = await scope.run(() => response.json()) as { choices?: Array<{ message?: { content?: string } }> }
   const content = body.choices?.[0]?.message?.content ?? ""
   const data = parseJsonObject(content)
   if (!data) throw new Error("LLM 返回内容不是有效 JSON")
@@ -110,4 +115,5 @@ export async function generateDailySummary(date: string, conversations: Conversa
   const sessionItems = conversations.map((conversation) => `**${sourceLabel(conversation.source)}** ${conversation.title}`)
   const markdown = `${section("今日完成事项", accomplishments)}\n\n${section("重点学习", knowledgeAbsorbed)}\n\n${section("明日建议", tomorrow)}\n\n## 来源统计\n\n${numbered(sourceItems)}\n\n## 会话清单\n\n${numbered(sessionItems)}`
   return { date, accomplishments, knowledgeAbsorbed, tomorrow, sourceBreakdown: counts, markdown }
+  } finally { scope.dispose() }
 }

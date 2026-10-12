@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { generateDailySummary } from "../core/summarizer"
 import type { Conversation } from "../core/types"
+import { SUMMARY_TIMEOUT_MS } from "../core/network"
 
 const conversations: Conversation[] = [{
   source: "codex",
@@ -10,7 +11,36 @@ const conversations: Conversation[] = [{
 }]
 
 describe("summarizer", () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
+
+  it("times out even when the response body never finishes and aborts the request", async () => {
+    vi.useFakeTimers()
+    let signal: AbortSignal | undefined
+    vi.stubGlobal("fetch", vi.fn((_url, init) => {
+      signal = init.signal
+      return Promise.resolve({ ok: true, json: () => new Promise(() => {}) })
+    }))
+    const pending = generateDailySummary("2026-10-12", conversations, { apiBaseUrl: "https://example.com", apiKey: "test", model: "test" })
+    const assertion = expect(pending).rejects.toThrow("日报生成超时")
+    await vi.advanceTimersByTimeAsync(SUMMARY_TIMEOUT_MS)
+    await assertion
+    expect(signal?.aborted).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("cancels an in-flight request and permits a fresh generation", async () => {
+    const controller = new AbortController()
+    const request = vi.fn((_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true })
+    }))
+    vi.stubGlobal("fetch", request)
+    const pending = generateDailySummary("2026-10-12", conversations, { apiBaseUrl: "https://example.com", apiKey: "test", model: "test" }, controller.signal)
+    await Promise.resolve()
+    controller.abort()
+    await expect(pending).rejects.toThrow("操作已取消")
+    const result = await generateDailySummary("2026-10-12", conversations, { apiBaseUrl: "", apiKey: "", model: "" })
+    expect(result.accomplishments).toEqual(["实现日报功能"])
+  })
 
   it("returns a local fallback when no API key is configured", async () => {
     const summary = await generateDailySummary("2026-09-22", conversations, { apiBaseUrl: "https://api.openai.com", apiKey: "", model: "gpt-4o-mini" })
