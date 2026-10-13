@@ -21,7 +21,7 @@ module.exports = async ({ github, context, core, directory = path.resolve('relea
       ...repo,
       tag_name: tag,
       target_commitish: context.sha,
-      name: `AI Session Summary ${tag}`,
+      name: `Traceweft ${tag}`,
       body: releaseNotes(version),
       draft: true,
       prerelease: version.includes('-'),

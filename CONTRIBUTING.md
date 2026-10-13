@@ -1,6 +1,6 @@
 # 参与贡献
 
-感谢你帮助 AI Session Summary 变得更好。欢迎提交问题、提出建议或贡献代码。
+感谢你帮助 Traceweft 变得更好。欢迎提交问题、提出建议或贡献代码。
 
 ## 开始之前
 
@@ -15,8 +15,8 @@
 - npm；macOS 或 Windows。Windows 安装包尚待真实 Windows 环境验收。
 
 ```bash
-git clone https://github.com/kfcLJH-HUB/summary_app.git
-cd summary_app
+git clone https://github.com/kfcLJH-HUB/traceweft.git
+cd traceweft
 npm ci
 npm run dev
 ```

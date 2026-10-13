@@ -37,7 +37,7 @@ describe("feishu integration", () => {
   it("converts the generated Markdown into plain text blocks", () => {
     const blocks = summaryToFeishuBlocks(summary)
     expect(blocks.map((block) => block.text.elements[0].text_run.content)).toEqual([
-      "AI Session Summary · 2026-09-24",
+      "Traceweft · 2026-09-24",
       "今日完成事项",
       "1. 完成飞书同步：日报自动追加。",
       "重点学习",

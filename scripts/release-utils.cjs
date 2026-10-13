@@ -36,7 +36,7 @@ function validateTag(tag, version) {
 function artifactNames(version, platform) {
   validateVersion(version);
   assert(platforms.includes(platform), `Unsupported platform: ${platform}`);
-  const prefix = `AI-Session-Summary-${version}`;
+  const prefix = `Traceweft-${version}`;
   return platform === 'macos-arm64'
     ? [`${prefix}-arm64.dmg`, `${prefix}-arm64.zip`]
     : [`${prefix}-win-x64-setup.exe`, `${prefix}-win-x64.zip`];
@@ -76,11 +76,11 @@ function verifyMacSignature(appPath, run = execFileSync) {
 async function verifyPackage(root, version, platform) {
   const directory = path.join(root, 'release');
   const app = platform === 'macos-arm64'
-    ? path.join(directory, 'mac-arm64', 'AI Session Summary.app', 'Contents')
+    ? path.join(directory, 'mac-arm64', 'Traceweft.app', 'Contents')
     : path.join(directory, 'win-unpacked');
   const executable = platform === 'macos-arm64'
-    ? path.join(app, 'MacOS', 'AI Session Summary')
-    : path.join(app, 'AI Session Summary.exe');
+    ? path.join(app, 'MacOS', 'Traceweft')
+    : path.join(app, 'Traceweft.exe');
   assert(fs.statSync(executable).size > 0, 'Packaged application executable is missing');
   if (platform === 'macos-arm64') verifyMacSignature(path.dirname(app));
   const asar = require('@electron/asar'); // Installed by electron-builder; not shipped with the app.
@@ -109,13 +109,13 @@ async function verifyDownloads(directory, version) {
 }
 
 function releaseNotes(version) {
-  return `## AI Session Summary ${validateVersion(version)}
+  return `## Traceweft ${validateVersion(version)}
 
 本地 AI 会话日报应用：读取 Codex、Claude Code、豆包与 DeepSeek 的会话，保存 Markdown 日报。
 
 ### 下载
-- Apple Silicon Mac：\`AI-Session-Summary-${version}-arm64.dmg\`（推荐）或 ZIP。
-- Windows x64：\`AI-Session-Summary-${version}-win-x64-setup.exe\`（推荐）或 ZIP。
+- Apple Silicon Mac：\`Traceweft-${version}-arm64.dmg\`（推荐）或 ZIP。
+- Windows x64：\`Traceweft-${version}-win-x64-setup.exe\`（推荐）或 ZIP。
 - SHA256 校验值见各平台的 \`SHA256SUMS-*.txt\`。
 
 ### 发布前检查（维护者填写后再发布）

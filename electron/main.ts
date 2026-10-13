@@ -14,6 +14,12 @@ import { appendSummaryToFeishu } from "../core/feishu"
 import type { AppSettings, DailySummary } from "../core/types"
 import { createNetworkScope, SUMMARY_TIMEOUT_MS, WEB_READ_TIMEOUT_MS, type NetworkScope } from "../core/network"
 
+// Preserve settings, browser sessions and renderer storage across the rebrand.
+// Explicit user-data-dir profiles still take precedence for isolated runs.
+if (!app.commandLine.hasSwitch("user-data-dir")) {
+  app.setPath("userData", join(app.getPath("appData"), "ai-session-summary"))
+}
+
 let mainWindow: BrowserWindow | null = null
 let doubaoView: WebContentsView | null = null
 let doubaoReady: Promise<void> | null = null
@@ -159,7 +165,7 @@ function createDeepSeekView() {
 }
 
 async function createWindow() {
-  mainWindow = new BrowserWindow({ width: 900, height: 640, minWidth: 760, minHeight: 520, title: "AI Session Summary", backgroundColor: "#f7f7f4", webPreferences: { preload: join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true } })
+  mainWindow = new BrowserWindow({ width: 900, height: 640, minWidth: 760, minHeight: 520, title: "Traceweft", backgroundColor: "#f7f7f4", webPreferences: { preload: join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true } })
   const rendererUrl = process.env.ELECTRON_RENDERER_URL
   if (rendererUrl) await mainWindow.loadURL(rendererUrl)
   else await mainWindow.loadFile(join(__dirname, "../dist/index.html"))

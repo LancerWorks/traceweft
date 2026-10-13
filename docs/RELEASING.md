@@ -29,7 +29,9 @@ npm run package:mac    # 在 Apple Silicon Mac 上执行
 # 或 npm run package:win，在 Windows x64 上执行
 ```
 
-安装文件名使用 `AI-Session-Summary-<版本>…`（不含空格），方便命令行校验及 Release 上传；应用显示名称仍为 AI Session Summary。
+安装文件名使用 `Traceweft-<版本>…`（不含空格），方便命令行校验及 Release 上传；应用显示名称仍为 Traceweft。
+
+2026-10-13 从 AI Session Summary 更名为 Traceweft。`appId` 与默认用户数据目录 `ai-session-summary` 保留兼容，不随展示名称修改；显式 `--user-data-dir` 仍可用于隔离测试。历史安装包、校验值与验收记录保留当时名称，更名后的包须重新构建，不能仅重命名旧附件。
 
 所有 `package:*` 脚本使用 `--publish never`，不会自动发布。可在对应平台执行下面的命令，为本地完整安装包生成校验清单：
 
@@ -55,7 +57,7 @@ npm run build
 git diff --check
 # 先检查、提交本次版本的变更，保证工作区干净，再执行：
 git push origin main
-git tag -a v0.1.0 -m "AI Session Summary v0.1.0"
+git tag -a v0.1.0 -m "Traceweft v0.1.0"
 git push origin v0.1.0
 ```
 
@@ -96,7 +98,9 @@ git push origin v0.1.0
 
 Windows 的实际结果与测试范围维护在 [WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTANCE.md)。表格记录 2026-10-12 对 `f3ea377` 的本地包完整核心实测，以及云端 ZIP / NSIS 的安装、启动、会话读取和模型输出复验；每次发布应重做检查，不能沿用旧包的通过记录。自动日报还应验证：已有手动编辑文件保持原样、新文件带时间戳、同名碰撞不覆盖；网络测试应验证取消后无日报写入、超时后按钮恢复、重新读取或生成可用。
 
-2026-10-12，修复提交 `f3ea3770e55d9c27dea3bc15729ded946130aded` 的 [双平台构建](https://github.com/kfcLJH-HUB/summary_app/actions/runs/38256998285) 成功。[Release 草稿](https://github.com/kfcLJH-HUB/summary_app/releases/edit/untagged-8b923a19e4049fd3d760) 已替换为该构建的六份附件，下载文件和远端附件的大小、SHA256 均核对通过，草稿目标提交也已更新。旧六份附件及原说明已完整备份后移除；草稿未公开，未创建 Git 标签。最终版本标签应指向实际构建源码，不应指向只更新验收文档的提交或旧包提交。
+2026-10-12，修复提交 `f3ea3770e55d9c27dea3bc15729ded946130aded` 的 [双平台构建](https://github.com/kfcLJH-HUB/traceweft/actions/runs/38256998285) 成功。[Release 草稿](https://github.com/kfcLJH-HUB/traceweft/releases/edit/untagged-8b923a19e4049fd3d760) 已替换为该构建的六份附件，下载文件和远端附件的大小、SHA256 均核对通过，草稿目标提交也已更新。旧六份附件及原说明已完整备份后移除；草稿未公开，未创建 Git 标签。最终版本标签应指向实际构建源码，不应指向只更新验收文档的提交或旧包提交。
+
+2026-10-13 的 Traceweft 更名尚未进入上述六份旧名称附件。草稿标题可使用 Traceweft，但发布前须以更名后提交重新构建并刷新两端安装包与校验文件，重新执行安装与核心流程验收；不可沿用旧包的验收结论。
 
 ## 5. 验证下载文件
 
@@ -125,7 +129,7 @@ SHA256 用来检测文件损坏或与清单不一致，**不能代替开发者�
 
 ## 6. 尚未完成
 
-- 完成最新构建的剩余双平台实机验收；Windows 的未验证项以验收记录为准。当前草稿已使用 `f3ea377` 构建，后续代码变化需重新构建并刷新附件。
+- 构建 Traceweft 更名后的双平台安装包，刷新草稿并完成实机验收；Windows 的未验证项以验收记录为准。当前草稿仍使用 `f3ea377` 的旧名称构建。
 - Apple Developer ID 签名与 notarization、Windows Authenticode 签名；当前只使用 ad-hoc 本地签名，流水线不会读取签名证书。
 - 品牌图标和应用图标的来源/授权确认，详见 [第三方声明](../THIRD_PARTY_NOTICES.md)。
 - 内置自动更新。本流程只提供下载安装包，不会自动更新用户设备上的应用。

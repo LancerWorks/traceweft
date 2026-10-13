@@ -2,6 +2,8 @@
 
 验收日期：2026-10-12（Asia/Shanghai）。
 
+2026-10-13 应用更名为 Traceweft；本文为更名前 `f3ea377` 包的历史验收，文件名与校验值保持原样，不代表更名后的安装包已验收。
+
 环境：Windows 11 家庭版中文，版本 10.0.26200 / Build 26200，x64。
 
 测试对象：源码 `f3ea3770e55d9c27dea3bc15729ded946130aded`、版本 0.1.0，本地打包及 Actions 下载的 NSIS 安装程序与 ZIP。测试使用独立 `--user-data-dir`、中文带空格目录、虚构 Codex / Claude Code 会话和本地 HTTP 接口，不上传真实聊天或密钥。
@@ -9,7 +11,7 @@
 ## 当前结果
 
 - 类型检查通过；50 项 Vitest 功能测试和 20 项发布检查通过。
-- [双平台 Actions 构建](https://github.com/kfcLJH-HUB/summary_app/actions/runs/38256998285) 成功。云端 Windows 包已单独进行桌面复验，范围见下方记录；超时、取消等完整检查使用本地同源码包，不能表述为云端附件已全部实测。
+- [双平台 Actions 构建](https://github.com/kfcLJH-HUB/traceweft/actions/runs/38256998285) 成功。云端 Windows 包已单独进行桌面复验，范围见下方记录；超时、取消等完整检查使用本地同源码包，不能表述为云端附件已全部实测。
 
 | 实测项目 | 结果与范围 |
 | --- | --- |

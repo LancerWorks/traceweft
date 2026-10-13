@@ -1,5 +1,5 @@
 {
-  "name": "ai-session-summary",
+  "name": "traceweft",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
@@ -41,7 +41,7 @@
   },
   "build": {
     "appId": "com.summary.ai-session-summary",
-    "productName": "AI Session Summary",
+    "productName": "Traceweft",
     "asar": true,
     "files": [
       "dist/**/*",
@@ -57,12 +57,12 @@
       ],
       "icon": "build/icon.png",
       "category": "public.app-category.productivity",
-      "artifactName": "AI-Session-Summary-${version}-${arch}.${ext}",
+      "artifactName": "Traceweft-${version}-${arch}.${ext}",
       "identity": "-",
       "notarize": false
     },
     "dmg": {
-      "title": "AI Session Summary ${version}",
+      "title": "Traceweft ${version}",
       "contents": [
         {
           "x": 130,
@@ -85,10 +85,10 @@
         "zip"
       ],
       "icon": "build/icon.png",
-      "artifactName": "AI-Session-Summary-${version}-win-${arch}.${ext}"
+      "artifactName": "Traceweft-${version}-win-${arch}.${ext}"
     },
     "nsis": {
-      "artifactName": "AI-Session-Summary-${version}-win-${arch}-setup.${ext}",
+      "artifactName": "Traceweft-${version}-win-${arch}-setup.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,

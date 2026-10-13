@@ -71,7 +71,7 @@ function splitLongLine(line: string, maxLength = 1500): string[] {
 }
 
 export function summaryToFeishuBlocks(summary: DailySummary): FeishuBlock[] {
-  const lines = [`AI Session Summary · ${summary.date}`, ...summary.markdown.split("\n")]
+  const lines = [`Traceweft · ${summary.date}`, ...summary.markdown.split("\n")]
     .map(cleanLine)
     .filter((line) => line && !/^---+$/.test(line))
   return lines.flatMap((line) => splitLongLine(line).map((content) => ({

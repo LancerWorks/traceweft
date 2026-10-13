@@ -30,8 +30,8 @@ test('release tags must exactly match a valid package version', () => {
 });
 
 test('artifact whitelist covers both platforms and rejects unsupported targets', () => {
-  assert.deepEqual(utils.artifactNames('0.1.0', 'macos-arm64'), ['AI-Session-Summary-0.1.0-arm64.dmg', 'AI-Session-Summary-0.1.0-arm64.zip']);
-  assert.deepEqual(utils.artifactNames('0.1.0', 'windows-x64'), ['AI-Session-Summary-0.1.0-win-x64-setup.exe', 'AI-Session-Summary-0.1.0-win-x64.zip']);
+  assert.deepEqual(utils.artifactNames('0.1.0', 'macos-arm64'), ['Traceweft-0.1.0-arm64.dmg', 'Traceweft-0.1.0-arm64.zip']);
+  assert.deepEqual(utils.artifactNames('0.1.0', 'windows-x64'), ['Traceweft-0.1.0-win-x64-setup.exe', 'Traceweft-0.1.0-win-x64.zip']);
   assert.throws(() => utils.artifactNames('0.1.0', 'linux'));
 });
 
@@ -42,7 +42,7 @@ test('both platform manifests validate exactly six release assets', async t => {
   for (const platform of utils.platforms) {
     const text = fs.readFileSync(path.join(directory, utils.checksumName(platform)), 'utf8');
     assert.equal(text.split('\n').filter(Boolean).length, 2);
-    assert.match(text, /^[a-f0-9]{64}  AI-Session-Summary-/);
+    assert.match(text, /^[a-f0-9]{64}  Traceweft-/);
   }
 });
 

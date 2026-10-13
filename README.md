@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="build/icon.png" width="112" alt="AI Session Summary icon" />
+<img src="build/icon.png" width="112" alt="Traceweft icon" />
 
-# AI Session Summary
+# Traceweft
 
 ### 把散落在不同 AI 工具里的对话，整理成每天都能回看的工程日志。
 
@@ -31,20 +31,22 @@
 
 ## 下载与安装
 
-已完成 **Apple Silicon Mac（M 系列芯片）** 和 **Windows x64** 的 GitHub Actions 双平台构建，并准备了包含两端安装包和 SHA256 清单的 Release 草稿。实机验收结果见 [Windows 验收记录](docs/WINDOWS_ACCEPTANCE.md)。发布后，前往 [GitHub Releases](https://github.com/kfcLJH-HUB/summary_app/releases)，在对应版本的 **Assets** 中按下面的文件名下载：
+支持 **Apple Silicon Mac（M 系列芯片）** 和 **Windows x64**。应用原名 AI Session Summary，2026-10-13 更名为 Traceweft，仓库名为 `traceweft`。下表为更名后构建的安装文件名；发布后，前往 [GitHub Releases](https://github.com/kfcLJH-HUB/traceweft/releases)，以实际版本的 **Assets** 为准。历史实机验收结果见 [Windows 验收记录](docs/WINDOWS_ACCEPTANCE.md)。
 
 | 平台 | 文件 | 用途 |
 | --- | --- | --- |
-| macOS | `AI-Session-Summary-0.1.0-arm64.dmg` | 推荐：打开 DMG，将应用拖入“应用程序”文件夹 |
-| macOS | `AI-Session-Summary-0.1.0-arm64.zip` | 备用：解压后将 `.app` 拖入“应用程序”文件夹 |
-| Windows x64 | `AI-Session-Summary-0.1.0-win-x64-setup.exe` | 推荐：运行安装程序，按向导完成安装 |
-| Windows x64 | `AI-Session-Summary-0.1.0-win-x64.zip` | 备用：解压后直接运行应用程序 |
+| macOS | `Traceweft-0.1.0-arm64.dmg` | 推荐：打开 DMG，将应用拖入“应用程序”文件夹 |
+| macOS | `Traceweft-0.1.0-arm64.zip` | 备用：解压后将 `.app` 拖入“应用程序”文件夹 |
+| Windows x64 | `Traceweft-0.1.0-win-x64-setup.exe` | 推荐：运行安装程序，按向导完成安装 |
+| Windows x64 | `Traceweft-0.1.0-win-x64.zip` | 备用：解压后直接运行应用程序 |
 
 macOS 安装包使用 ad-hoc 本地签名保证包内签名一致，但尚未进行 Apple Developer ID 签名或公证；Windows 安装包也未进行 Authenticode 签名，因此首次运行可能提示来源未验证。确认下载来源可信后再按系统提示处理，不建议关闭系统安全保护。无需安装 Node.js 即可运行已打包的应用。如果仓库仍为私有仓库，下载者需要获得访问权限。
 
 每个平台同时提供 `SHA256SUMS-*.txt`，可检查下载文件是否完整，方法见 [发布与校验指南](docs/RELEASING.md)。文件名中的 `0.1.0` 以实际发布版本为准。
 
-**当前 Release 仍为未公开草稿。** 2026-10-12 已刷新为修复提交 `f3ea377` 的双平台安装包及校验文件，六份远端附件 SHA256 核对通过。Windows 核心流程已实测，剩余验收项目见验收记录；最新 Mac 包仍需实机复验。后续源码提交不会自动更新草稿附件。
+**当前 Release 仍为未公开草稿。** 六份附件仍为修复提交 `f3ea377` 的旧名称包 `AI-Session-Summary-*`，SHA256 核对通过，但不包含 Traceweft 更名。发布 Traceweft 前需重新构建、刷新附件并复验，源码提交不会自动更新草稿附件。
+
+为延续已有配置和网页登录状态，应用保留原安装标识与 `ai-session-summary` 用户数据目录；已有自动日报记录、来源选择和输出目录设置继续使用。应用窗口、安装程序和新构建文件使用 Traceweft 名称。
 
 ## 核心能力
 
@@ -119,8 +121,8 @@ Codex 会优先使用 `~/.codex/session_index.jsonl` 中的原生标题；Claude
 ### 安装与开发
 
 ```bash
-git clone https://github.com/kfcLJH-HUB/summary_app.git
-cd summary_app
+git clone https://github.com/kfcLJH-HUB/traceweft.git
+cd traceweft
 npm ci
 npm run dev
 ```
@@ -206,7 +208,7 @@ npm run package:win
 ## 项目结构
 
 ```text
-summary_app/
+traceweft/
 ├── electron/
 │   ├── main.ts                 # Electron 主进程与 IPC
 │   ├── preload.ts              # 渲染进程安全桥接
